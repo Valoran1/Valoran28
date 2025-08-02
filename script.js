@@ -1,88 +1,58 @@
 const chatBox = document.getElementById("chat-box");
 const chatForm = document.getElementById("chat-form");
-const userInput = document.getElementById("user-input");
+const textInput = document.getElementById("user-input");
 const scrollBtn = document.getElementById("scroll-btn");
 
-let messages = [];
-
-function addMessage(content, sender, typing = false) {
-  const msg = document.createElement("div");
-  msg.className = sender === "user" ? "user-message" : "bot-message";
-  if (typing) {
-    const span = document.createElement("span");
-    msg.appendChild(span);
-    chatBox.appendChild(msg);
-    return span;
-  } else {
-    msg.textContent = content;
-    chatBox.appendChild(msg);
-    chatBox.scrollTop = chatBox.scrollHeight;
-  }
-}
-
-function showTypingIndicator() {
-  const typing = document.createElement("div");
-  typing.id = "typing-indicator";
-  typing.className = "bot-message";
-  typing.textContent = "Valoran piše...";
-  chatBox.appendChild(typing);
+function addMessage(text, isUser) {
+  const message = document.createElement("div");
+  message.className = "message " + (isUser ? "user-message" : "bot-message");
+  message.textContent = text;
+  chatBox.appendChild(message);
   chatBox.scrollTop = chatBox.scrollHeight;
 }
 
-function removeTypingIndicator() {
-  const typing = document.getElementById("typing-indicator");
-  if (typing) typing.remove();
-}
+async function streamResponse(response) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let result = "";
+  const botMsg = document.createElement("div");
+  botMsg.className = "message bot-message";
+  chatBox.appendChild(botMsg);
 
-function scrollToBottom() {
-  chatBox.scrollTo({ top: chatBox.scrollHeight, behavior: "smooth" });
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const chunk = decoder.decode(value);
+    result += chunk;
+    botMsg.textContent = result;
+    chatBox.scrollTop = chatBox.scrollHeight;
+  }
+  textInput.focus(); // avtomatski fokus
 }
-
-chatBox.addEventListener("scroll", () => {
-  scrollBtn.style.display = chatBox.scrollTop < chatBox.scrollHeight - 300 ? "block" : "none";
-});
 
 chatForm.addEventListener("submit", async (e) => {
   e.preventDefault();
-  const input = userInput.value.trim();
-  if (!input) return;
-
-  addMessage(input, "user");
-  userInput.value = "";
-  messages.push({ role: "user", content: input });
-
-  showTypingIndicator();
-
+  const userInput = textInput.value.trim();
+  if (!userInput) return;
+  addMessage(userInput, true);
+  textInput.value = "";
   try {
-    const res = await fetch("/.netlify/functions/chat", {
+    const response = await fetch("/.netlify/functions/chat", {
       method: "POST",
-      body: JSON.stringify({ messages }),
+      body: JSON.stringify({ message: userInput }),
     });
-
-    const reply = await res.text();
-    removeTypingIndicator();
-
-    const span = addMessage("", "bot", true);
-    let words = reply.split(" ");
-    let i = 0;
-
-    function typeNextWord() {
-      if (i < words.length) {
-        span.textContent += (i > 0 ? " " : "") + words[i];
-        chatBox.scrollTop = chatBox.scrollHeight;
-        i++;
-        setTimeout(typeNextWord, 80); // hitrost
-      } else {
-        messages.push({ role: "assistant", content: reply });
-      }
-    }
-
-    typeNextWord();
+    await streamResponse(response);
   } catch (err) {
-    removeTypingIndicator();
-    addMessage("Napaka pri komunikaciji z Valoranom.", "bot");
-    console.error(err);
+    addMessage("Napaka pri pridobivanju odgovora.", false);
   }
+});
+
+function scrollToTop() {
+  chatBox.scrollTop = 0;
+}
+
+window.addEventListener("scroll", () => {
+  scrollBtn.classList.toggle("show", window.scrollY > 200);
 });
 
 
